@@ -1,6 +1,4 @@
 
-
-
 public class PlayerSkeleton {
 
 	//implement this function to have a working system
