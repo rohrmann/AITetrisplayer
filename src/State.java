@@ -114,7 +114,32 @@ public class State {
 	public int[][] getField() {
 		return field;
 	}
-	
+
+	public int[] getTop() {
+		return top;
+	}
+
+    public static int[] getpOrients() {
+        return pOrients;
+    }
+    
+    public static int[][] getpWidth() {
+        return pWidth;
+    }
+
+    public static int[][] getpHeight() {
+        return pHeight;
+    }
+
+    public static int[][][] getpBottom() {
+        return pBottom;
+    }
+
+    public static int[][][] getpTop() {
+        return pTop;
+    }
+
+
 	public int getNextPiece() {
 		return nextPiece;
 	}
