@@ -142,6 +142,7 @@ public class TFrame extends JFrame implements KeyListener{
         else System.out.println("unknown extension");
     }
 	
+    @SuppressWarnings("unused")
 	public static void main(String[] args) {
 		State s = new State();
 		TFrame t = new TFrame(s);

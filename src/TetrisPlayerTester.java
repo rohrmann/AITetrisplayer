@@ -8,7 +8,7 @@ public class TetrisPlayerTester implements Runnable{
 	 * A new thread is spawned for each new game,
 	 * so dont go to crazy
 	 */
-	public static final int TESTS = 20;
+	public static final int TESTS = 50;
 	
 	/* Change to true if you want to 
 	 * show the game (instead of just 

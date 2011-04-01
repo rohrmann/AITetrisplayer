@@ -6,7 +6,7 @@ public class PlayerSkeleton {
 	public static final int MIN = -2147483648;
 		
 	public int pickMove(State s, int[][] legalMoves) {
-		double maxHeuristic = -90000;
+		double maxHeuristic = PlayerSkeleton.MIN;
 		int maxHeuristicIndex = 0;
 
 		//For each legal move..		
@@ -40,11 +40,11 @@ public class PlayerSkeleton {
 			s.makeMove( p.pickMove( s,s.legalMoves() ) );
 			s.draw();
 			s.drawNext(0,0);
-			try {
+			/*try {
 				Thread.sleep(10);
 			} catch (InterruptedException e) {
 				e.printStackTrace();
-			}
+			}*/
 		}
 		System.out.println("You have completed "+s.getRowsCleared()+" rows.");
 	}
@@ -62,16 +62,13 @@ public class PlayerSkeleton {
 		private StateCopy sc;
 		
 		//Weighting for different heuristics
-		private static final int ROWS_COMPLETED_WEIGHT     = 388;
-		private static final int MAX_HEIGHT_WEIGHT         = -3;
-		private static final int DIF_MAX_HEIGHT_WEIGHT     = 4;
-		private static final int HOLES_WEIGHT              = -68;
-		private static final int DIF_HOLES_WEIGHT          = 110;
-		private static final int AVERAGE_HEIGHT_WEIGHT     = -10;
-		private static final int DIF_AVERAGE_HEIGHT_WEIGHT = 379;
-		private static final int ABS_HEIGHT_WEIGHT         = -22;
-		private static final int DIF_ABS_HEIGHT_WEIGHT     = 20;
-		
+		private static final double ROWS_COMPLETED_WEIGHT     = 388.43;
+		private static final double DIF_MAX_HEIGHT_WEIGHT     = -4.82;
+		private static final double DIF_HOLES_WEIGHT          = -111.74;
+		private static final double DIF_AVERAGE_HEIGHT_WEIGHT = -379.08;
+		private static final double DIF_ABS_HEIGHT_WEIGHT     = -20.79;
+		private static final double DIF_IN_HEIGHT_WEIGHT	  = -3.25;
+		private static final double DIF_IN_TROUGHS_WEIGHT	  = -50;
 		private boolean hasLost = false;
 		
 		public Heuristic(State s, int[] m){
@@ -84,27 +81,23 @@ public class PlayerSkeleton {
 		public double getTotalHeuristicValue(){
 			
 			if(hasLost)
-				return -50000;// We really, reeeeally don't want to choose this move..
+				return PlayerSkeleton.MIN/2;// We really, reeeeally don't want to choose this move..
 			
 			double rowsCompleted = getRowsCompleted(sc);
-			double currentMaxHeight= getMaxHeight(s);
-			double differenceInMaxHeight = currentMaxHeight - getMaxHeight(sc);
-			double currentHolesInBoard = getHoles(s);
-			double differenceInHolesInBoard = currentHolesInBoard - getHoles(sc);
-			double currentAbsHeightDifference = getAbsHeightDifference(s);
-			double differenceInAbsHeightDifference = currentAbsHeightDifference - getAbsHeightDifference(sc);
-			double currentAverageHeight = getAverageHeight(s);
-			double differenceInAverageHeight = currentAverageHeight - getAverageHeight(sc);
+			double differenceInMaxHeight = getMaxHeight(sc) - getMaxHeight(s);
+			double differenceInHolesInBoard = getHoles(sc) - getHoles(s);
+			double differenceInAbsHeightDifference = getAbsHeightDifference(sc)- getAbsHeightDifference(s);
+			double differenceInAverageHeight = getAverageHeight(sc) - getAverageHeight(s);
+			double differenceBetweenMaxAndMin = getMaxHeight(sc) - getMinHeight(sc);
+			double differenceBetweenDeepTroughs = getDeepTroughs(sc) - getDeepTroughs(s);
 
 			double totalHeuristic = (rowsCompleted * ROWS_COMPLETED_WEIGHT) +
-									(currentMaxHeight * MAX_HEIGHT_WEIGHT) +
 									(differenceInMaxHeight * DIF_MAX_HEIGHT_WEIGHT) +
-									(currentHolesInBoard * HOLES_WEIGHT) +
 									(differenceInHolesInBoard * DIF_HOLES_WEIGHT) +
-									(currentAverageHeight * AVERAGE_HEIGHT_WEIGHT) + 
 									(differenceInAverageHeight * DIF_AVERAGE_HEIGHT_WEIGHT) +
-									(currentAbsHeightDifference * ABS_HEIGHT_WEIGHT) +
-									(differenceInAbsHeightDifference * DIF_ABS_HEIGHT_WEIGHT)
+									(differenceInAbsHeightDifference * DIF_ABS_HEIGHT_WEIGHT) +
+									(differenceBetweenMaxAndMin * DIF_IN_HEIGHT_WEIGHT) +
+									(differenceBetweenDeepTroughs * DIF_IN_TROUGHS_WEIGHT)
 									;
 			
 			return totalHeuristic;
@@ -127,7 +120,7 @@ public class PlayerSkeleton {
 			
 			int holes = 0;
 			for(int i = 0; i < cols; i++)
-				for(int j = 0; j < top[i]; j++){
+				for(int j = top[i] - 2; j > 0; j--){
 					try{
 						if(field[j][i] == 0 && field[j+1][i] != 0)
 							holes++;
@@ -137,6 +130,64 @@ public class PlayerSkeleton {
 				}
 				
 			return holes;
+		}
+		
+		// This function looks for vertical gaps
+		// of a depth > 3. This is because the
+		// likelihood of getting a piece to fill
+		// this gap is only 1/7 (as opposed to 3/7
+		// if the trough is of a depth == 2
+		//
+		// EDIT: I've changed it to look for vertical
+		// 		 gaps of depth 2 because it seems 
+		//		 to perform better?!
+		public int getDeepTroughs(Object s){
+			int troughs = 0;
+			
+			int field[][], top[];
+			try{
+				field = State.class.cast(s).getField();
+				top = State.class.cast(s).getTop();
+			}catch(ClassCastException e){
+				try{
+					field = StateCopy.class.cast(s).getField();
+					top = StateCopy.class.cast(s).getTop();
+				}catch(ClassCastException e2){
+					System.err.println("Error casting object");
+					return -1000;
+				}
+			}
+
+			for(int col = 0; col < top.length; col++){
+				int row = top[col];
+				try{
+					if(col == 0){
+						//Special case for the first column..
+						boolean isTroff = field[row+1][col+1] != 0 && 
+										  field[row+2][col+1] != 0;// && 
+										  //field[row+3][col+1] != 0;
+						if(isTroff)
+							troughs++;
+					}
+					else if(col == top.length - 1){
+						//Special case for the last column..
+						boolean isTroff = field[row+1][col-1] != 0 && 
+										  field[row+2][col-1] != 0;// && 
+										  //field[row+3][col-1] != 0;
+						if(isTroff)
+							troughs++;
+					}
+					else{
+						boolean isTroff = field[row+1][col+1] != 0 && field[row+1][col-1] != 0 && 
+										  field[row+2][col+1] != 0 && field[row+2][col-1] != 0;// && 
+										  //field[row+3][col+1] != 0 && field[row+3][col-1] != 0;
+						if(isTroff)
+							troughs++;
+					}
+				}catch(IndexOutOfBoundsException e){}
+			}
+			
+			return troughs;
 		}
 	
 		public double getAbsHeightDifference(Object s){
@@ -163,6 +214,27 @@ public class PlayerSkeleton {
 			}
 				
 			return sum;
+		}
+		
+		public double getMinHeight(Object s){
+			int top[];
+			try{
+				top = State.class.cast(s).getTop();
+			}catch(ClassCastException e){
+				try{
+					top = StateCopy.class.cast(s).getTop();
+				}catch(ClassCastException e2){
+					System.err.println("Error casting object");
+					return -1000;
+				}
+			}
+
+			int min= PlayerSkeleton.MAX;
+			for(int i : top){
+				if(i<min)
+					min=i;
+			}
+			return min;
 		}
 		
 		public double getMaxHeight(Object s){
