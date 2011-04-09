@@ -1,4 +1,17 @@
-
+/**
+ * base function which returns the sum of all wells. A well is defined to be a one cell wide hole thus it has
+ * to have full neighboring cells. The value of the well depends on how many wells are directly above this well.
+ * e.g. | X X|
+ * 		| XXX|
+ * contains 3 wells:
+ * 		|wXwX|
+ * 		|wXXX|
+ * and the values are
+ * 		|1X1X|
+ * 		|2XXX|
+ * @author rohrmann
+ *
+ */
 public class BFCumulativeWells implements BaseFunction {
 
 	@Override

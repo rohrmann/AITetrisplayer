@@ -3,6 +3,11 @@
 import org.junit.Assert;
 import org.junit.Test;
 
+/**
+ * Junit test class for the Matrix class
+ * @author rohrmann
+ *
+ */
 public class MatrixTest {
 
 	@Test

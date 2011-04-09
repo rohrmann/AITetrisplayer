@@ -1,4 +1,8 @@
-
+/**
+ * This class encapsulates the necessary information for one sample.
+ * @author rohrmann
+ *
+ */
 public class Sample {
 	public StateEx oldState;
 	public StateEx newState;

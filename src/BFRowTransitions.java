@@ -1,3 +1,9 @@
+/**
+ * base function which returns the number of row transition. A row transition is a change from a full cell to an emtpy
+ * cell or vice versa in the same row. The side walls are considered to be full cells.
+ * @author rohrmann
+ *
+ */
 public class BFRowTransitions implements BaseFunction {
 
 	@Override

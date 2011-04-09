@@ -1,5 +1,9 @@
 
-
+/**
+ * base function which calculates the difference of the absolute height difference between two adjacent columns
+ * @author rohrmann
+ *
+ */
 public class BFAAHDDiff implements BaseFunction {
 	private int column;
 

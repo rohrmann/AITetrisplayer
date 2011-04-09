@@ -1,5 +1,9 @@
 
-
+/**
+ * Convenience class which contains helpful methods
+ * @author rohrmann
+ *
+ */
 public class Helper {
 
 	public static final double eps = 0.00001;

@@ -1,3 +1,10 @@
+/**
+ * base functions which calculates the column transition. A column transition occurs if a full cell
+ * is directly below an empty cell in the same column or vice versa. The bottom row is considered to 
+ * contain full cells.
+ * @author rohrmann
+ *
+ */
 public class BFColumnTransitions implements BaseFunction {
 
 	@Override

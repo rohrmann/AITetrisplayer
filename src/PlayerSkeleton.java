@@ -3,11 +3,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-
-//import baseFunctions.BFAAHD;
-//import baseFunctions.BFAAHDDiff;
-//import baseFunctions.BFColumnHeightDiff;
-
+/**
+ * This class implements our Tetris AI
+ * @author rohrmann
+ *
+ */
 public class PlayerSkeleton {
 	public static final int MAX = 2147483647;
 	public static final int MIN = -2147483648;
@@ -15,6 +15,7 @@ public class PlayerSkeleton {
 	private Matrix weights;
 	private BaseFunctions baseFunctions;
 	
+//	used for the LSPI algorithm
 	private final double discountFactor = 0.99999;
 	private final int iterations = 20;
 	private final double delta = 0.000001;
@@ -22,10 +23,14 @@ public class PlayerSkeleton {
 
 	public PlayerSkeleton() {
 		baseFunctions = new BaseFunctions();
-		initLagoudakis();
-		learnWeights();
+		initDellacherie();
 	}
 
+	/**
+	 * Generation of random samples by creating a random state and playing randomly
+	 * @param numberSamples
+	 * @return
+	 */
 	protected List<Sample> getRandomSamples(int numberSamples) {
 		List<Sample> result = new ArrayList<Sample>();
 		int n = 0;
@@ -47,6 +52,13 @@ public class PlayerSkeleton {
 		return result;
 	}
 
+	/**
+	 * Sampling by generating random states and playing according to the current policy.
+	 * @param numSamples
+	 * @param weights
+	 * @param baseFunctions
+	 * @return
+	 */
 	protected List<Sample> getRandomSamplesByPlayingPolicy(int numSamples,
 			Matrix weights, BaseFunctions baseFunctions) {
 		List<Sample> result = new ArrayList<Sample>();
@@ -69,6 +81,13 @@ public class PlayerSkeleton {
 		return result;
 	}
 
+	/**
+	 * Sampling by playing several Tetris game with a random choice of actions.
+	 * @param numSamples
+	 * @param weights
+	 * @param baseFunctions
+	 * @return
+	 */
 	protected List<Sample> getSamplesByPlayingRandomly(int numSamples,
 			Matrix weights, BaseFunctions baseFunctions) {
 		List<Sample> result = new ArrayList<Sample>();
@@ -93,6 +112,13 @@ public class PlayerSkeleton {
 		return result;
 	}
 
+	/**
+	 * Sampling by playing several tetris games according to the current policy.
+	 * @param numSamples
+	 * @param weights
+	 * @param baseFunctions
+	 * @return
+	 */
 	protected List<Sample> getSamplesByPlayingPolicy(int numSamples,
 			Matrix weights, BaseFunctions baseFunctions) {
 		List<Sample> result = new ArrayList<Sample>();
@@ -118,6 +144,13 @@ public class PlayerSkeleton {
 		return result;
 	}
 
+	/**
+	 * Sampling by playing one Tetris game according to the current policy.
+	 * @param games
+	 * @param weights
+	 * @param baseFunctions
+	 * @return
+	 */
 	protected Pair<List<Sample>, Double> getSamplesByPlayingGame(int games,
 			Matrix weights, BaseFunctions baseFunctions) {
 		List<Sample> result = new ArrayList<Sample>();
@@ -150,6 +183,12 @@ public class PlayerSkeleton {
 				/ games);
 	}
 
+	/**
+	 * Function which uses the LSPI algorithm to learn an approximation of the state action value function. It
+	 * generates samples by playing Tetris with the current policy. These samples are then used to calculate the
+	 * new policy before a new iteration is started. During the iteration the function saves the best weight vector
+	 * which is set as the final weight vector at the end.
+	 */
 	protected void learnWeights() {
 		List<Sample> samples = new ArrayList<Sample>();
 		Matrix newWeights = null;
@@ -166,7 +205,10 @@ public class PlayerSkeleton {
 			}
 
 			newWeights = LSPI(samples, weights, baseFunctions);
-
+			
+			//If the samples are not well distributed, then the LSPI algorithm doesn't converge but instead
+			//moves in a space around the optimal solution. If the LSPI algorithm notes that, it will return
+			//null.
 			if (newWeights != null) {
 				weights = newWeights;
 			} else {
@@ -179,13 +221,23 @@ public class PlayerSkeleton {
 		weights.transpose().printMatrix();
 	}
 
+	/**
+	 * Least Square Policy Iteration with recognition of weight vector cycles. If the
+	 * samples are not well distributed, it can happen that the algorithm isn't converging against
+	 * a fix point but instead is oscillating in a space around the optimal solution. This has to be
+	 * recognized.
+	 * @param samples
+	 * @param weights
+	 * @param baseFunctions
+	 * @return
+	 */
 	protected Matrix LSPI(List<Sample> samples, Matrix weights,
 			BaseFunctions baseFunctions) {
 		Matrix newWeights = weights.clone();
 		Matrix oldWeights;
 
 		Set<Matrix> values = new HashSet<Matrix>();
-
+		//fix point iteration
 		do {
 			if (values.contains(newWeights)) {
 				return null;
@@ -199,6 +251,13 @@ public class PlayerSkeleton {
 		return newWeights;
 	}
 
+	/**
+	 * Least squares temporal differences learning for the state action value function Q.
+	 * @param samples
+	 * @param weights
+	 * @param baseFunctions
+	 * @return
+	 */
 	protected Matrix LSTDQ(List<Sample> samples, Matrix weights,
 			BaseFunctions baseFunctions) {
 		Matrix A = Matrix.identity(baseFunctions.size()).mul(delta);
@@ -212,6 +271,7 @@ public class PlayerSkeleton {
 
 			int choice = applyPolicy(predictedState, predictedState
 					.legalMoves(), weights, baseFunctions);
+			//decide whether we can execute the move
 			boolean doable = predictedState.makeMove(choice);
 
 			Matrix nbf = null;
@@ -231,6 +291,14 @@ public class PlayerSkeleton {
 		return A.invert().mul(b);
 	}
 
+	/**
+	 * Optimized version of the least squares temporal difference learning of the state action value function.
+	 * By applying the Sherman-Morrison formula we can get rid of the inversion of the Matrix A.
+	 * @param samples
+	 * @param weights
+	 * @param baseFunctions
+	 * @return
+	 */
 	protected Matrix LSTDQOPT(List<Sample> samples, Matrix weights,
 			BaseFunctions baseFunctions) {
 		Matrix B = Matrix.identity(baseFunctions.size()).mul(1 / delta);
@@ -270,6 +338,10 @@ public class PlayerSkeleton {
 		return B.mul(b);
 	}
 
+	/**
+	 * This function initialize the base function set and the weight vector with the base functions and the weights
+	 * which were used by Dellacherie. The weights weren't derived by machine learning means but by try and error.
+	 */
 	protected void initDellacherie(){
 		List<Double> weights = new ArrayList<Double>();
 		
@@ -300,6 +372,10 @@ public class PlayerSkeleton {
 		this.weights = new Matrix(weightValues);
 	}
 	
+	/**
+	 * This functions sets the base functions and weights used by Thiery. It's supposed to be better than Dellacharie
+	 * but the simulations couldn't prove that.
+	 */
 	protected void initThiery(){
 		List<Double> weights = new ArrayList<Double>();
 		
@@ -336,6 +412,10 @@ public class PlayerSkeleton {
 		this.weights = new Matrix(weightValues);
 	}
 	
+	/**
+	 * This functions sets the base functions used by Lagoudakis. The weights are learned by the LSPI algorithm.
+	 * But it performs far worse than the evaluation function of Dellacharie.
+	 */
 	void initLagoudakis(){
 		List<Double> weights = new ArrayList<Double>();
 		 //2700 rows cleared: -8.78951411243151;0.08151298534273177;431.6138387336361;1097.2245005375664;4.564176063822103;-0.9564016301739926;-9.207422350726727;432.3913694007997;-42.26627603559048;-46.52407063944807
@@ -381,6 +461,14 @@ public class PlayerSkeleton {
 		 this.weights = new Matrix(finalWeights);
 	}
 
+	/**
+	 * This function calculates the best action given a certain state, weights and a set of base functions.
+	 * @param s
+	 * @param legalMoves
+	 * @param weights
+	 * @param baseFunctions
+	 * @return
+	 */
 	public int applyPolicy(StateEx s, int[][] legalMoves, Matrix weights,
 			BaseFunctions baseFunctions) {
 		StateEx newState;
@@ -403,6 +491,12 @@ public class PlayerSkeleton {
 		return bestMove;
 	}
 
+	/**
+	 * Wrapper function for applyPolicy
+	 * @param s
+	 * @param legalMoves
+	 * @return
+	 */
 	public int pickMove(State s, int[][] legalMoves) {
 		return applyPolicy(new StateEx(s), legalMoves, weights, baseFunctions);
 

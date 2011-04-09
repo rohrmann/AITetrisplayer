@@ -1,7 +1,9 @@
-
-
-
-
+/**
+ * This class represents a matrix whose values are doubles. It implements the most basic
+ * operations on matrices.
+ * @author rohrmann
+ *
+ */
 public class Matrix implements Cloneable {
 	private int m;
 	private int n;
@@ -216,6 +218,13 @@ public class Matrix implements Cloneable {
 		return new Matrix(result);
 	}
 
+	/**
+	 * This function is only used for debugging purposes. It prints the array array so that the ordering
+	 * of the rows conforms with the row ordering specified by mapping. The entry mapping[i] is the row index
+	 * which is supposed to be the i-th row.
+	 * @param array
+	 * @param mapping
+	 */
 	private void printMappedArray(double[][] array, int[] mapping) {
 		for (int i = 0; i < array.length; i++) {
 			for (int j = 0; j < array[0].length; j++) {

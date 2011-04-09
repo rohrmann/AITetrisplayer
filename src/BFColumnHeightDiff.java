@@ -1,3 +1,8 @@
+/**
+ * base function which calculates the height difference of a specified column between the new and the old state
+ * @author rohrmann
+ *
+ */
 public class BFColumnHeightDiff implements BaseFunction {
 	private int column;
 

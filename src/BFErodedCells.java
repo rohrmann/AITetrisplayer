@@ -1,4 +1,9 @@
-
+/**
+ * base function which returns the product of the completed rows and the eroded cells of the last place
+ * piece.
+ * @author rohrmann
+ *
+ */
 public class BFErodedCells implements BaseFunction {
 
 	@Override

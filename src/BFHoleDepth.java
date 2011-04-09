@@ -1,3 +1,9 @@
+/**
+ * base function which returns the sum of all hole depths on the board. The depth of a hole is defined as
+ * the number of full cells which are directly above the hole.
+ * @author rohrmann
+ *
+ */
 public class BFHoleDepth implements BaseFunction {
 
 	@Override

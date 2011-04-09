@@ -1,9 +1,13 @@
 
 
-
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Aggregator class for the base functions
+ * @author rohrmann
+ *
+ */
 public class BaseFunctions {
 
 	List<BaseFunction> baseFunctions;

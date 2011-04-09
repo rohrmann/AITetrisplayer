@@ -1,4 +1,8 @@
-
+/**
+ * This class is an extended version of the State class and is used to evaluate the base functions.
+ * @author rohrmann
+ *
+ */
 public class StateEx {
 
 	public static final int COLS = 10;
@@ -192,7 +196,8 @@ public class StateEx {
 		landingHeight = height;
 		erodedPieces = 0;
 		lastPiece = nextPiece;
-		heightPiece = landingHeight + pHeight[nextPiece][orient] / 2.0;
+		//save the landing height of the current piece
+		heightPiece = landingHeight + (pHeight[nextPiece][orient]-1) / 2.0;
 
 		// for each column in the piece - fill in the appropriate blocks
 		for (int i = 0; i < pWidth[nextPiece][orient]; i++) {
@@ -227,6 +232,7 @@ public class StateEx {
 				cleared++;
 				// for each column
 				for (int c = 0; c < COLS; c++) {
+					//check whether the eroded cell at (r,c) belongs to the last piece.
 					if (field[r][c] == turn) {
 						erodedPieces++;
 					}
