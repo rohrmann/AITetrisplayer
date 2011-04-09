@@ -1,453 +1,447 @@
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 
+//import baseFunctions.BFAAHD;
+//import baseFunctions.BFAAHDDiff;
+//import baseFunctions.BFColumnHeightDiff;
 
 public class PlayerSkeleton {
 	public static final int MAX = 2147483647;
 	public static final int MIN = -2147483648;
-		
-	public int pickMove(State s, int[][] legalMoves) {
-		double maxHeuristic = PlayerSkeleton.MIN;
-		int maxHeuristicIndex = 0;
 
-		//For each legal move..		
-		for(int i = 0; i < legalMoves.length; i++){
-			//Get the heuristic value of the move
-			Heuristic h = new Heuristic(s, legalMoves[i]);
-			double totalHeuristic = h.getTotalHeuristicValue();
-			
-			//Record our best move
-			if(Double.compare(totalHeuristic,maxHeuristic) > 0){
-				maxHeuristic = totalHeuristic;
-				maxHeuristicIndex = i;
+	private Matrix weights;
+	private BaseFunctions baseFunctions;
+	
+	private final double discountFactor = 0.99999;
+	private final int iterations = 20;
+	private final double delta = 0.000001;
+	private final int gamesPerIteration = 5;
+
+	public PlayerSkeleton() {
+		baseFunctions = new BaseFunctions();
+		initLagoudakis();
+		learnWeights();
+	}
+
+	protected List<Sample> getRandomSamples(int numberSamples) {
+		List<Sample> result = new ArrayList<Sample>();
+		int n = 0;
+
+		while (n < numberSamples) {
+			StateEx state = StateEx.getRandomStateEx();
+			int[][] moves = state.legalMoves();
+
+			int choice = (int) (Math.random() * moves.length);
+
+			StateEx newState = state.clone();
+			if (newState.makeMove(choice)) {
+				result.add(new Sample(state, newState, newState
+						.getRowsCleared()
+						- state.getRowsCleared()));
+				n++;
 			}
 		}
+		return result;
+	}
+
+	protected List<Sample> getRandomSamplesByPlayingPolicy(int numSamples,
+			Matrix weights, BaseFunctions baseFunctions) {
+		List<Sample> result = new ArrayList<Sample>();
+		int n = 0;
+
+		while (n < numSamples) {
+			StateEx state = StateEx.getRandomStateEx();
+			int[][] moves = state.legalMoves();
+
+			int choice = applyPolicy(state, moves, weights, baseFunctions);
+
+			StateEx newState = state.clone();
+			if (newState.makeMove(moves[choice][0], moves[choice][1])) {
+				result.add(new Sample(state, newState, newState
+						.getRowsCleared()
+						- state.getRowsCleared()));
+				n++;
+			}
+		}
+		return result;
+	}
+
+	protected List<Sample> getSamplesByPlayingRandomly(int numSamples,
+			Matrix weights, BaseFunctions baseFunctions) {
+		List<Sample> result = new ArrayList<Sample>();
+
+		StateEx state = new StateEx();
+		int samples = 0;
+
+		while (samples < numSamples) {
+			int choice = (int) (Math.random() * state.legalMoves().length);
+			StateEx nextState = state.clone();
+			if (nextState.makeMove(state.legalMoves()[choice][0], state
+					.legalMoves()[choice][1])) {
+				result.add(new Sample(state, nextState, nextState
+						.getRowsCleared()
+						- state.getRowsCleared()));
+				samples++;
+				state = nextState;
+			} else {
+				state = new StateEx();
+			}
+		}
+		return result;
+	}
+
+	protected List<Sample> getSamplesByPlayingPolicy(int numSamples,
+			Matrix weights, BaseFunctions baseFunctions) {
+		List<Sample> result = new ArrayList<Sample>();
+
+		StateEx state = new StateEx();
+		int samples = 0;
+
+		while (samples < numSamples) {
+			int choice = applyPolicy(state, state.legalMoves(), weights,
+					baseFunctions);
+			StateEx nextState = state.clone();
+			if (nextState.makeMove(state.legalMoves()[choice][0], state
+					.legalMoves()[choice][1])) {
+				result.add(new Sample(state, nextState, nextState
+						.getRowsCleared()
+						- state.getRowsCleared()));
+				samples++;
+				state = nextState;
+			} else {
+				state = new StateEx();
+			}
+		}
+		return result;
+	}
+
+	protected Pair<List<Sample>, Double> getSamplesByPlayingGame(int games,
+			Matrix weights, BaseFunctions baseFunctions) {
+		List<Sample> result = new ArrayList<Sample>();
+		int rowsCleared = 0;
+
+		for (int i = 0; i < games; i++) {
+			StateEx state = new StateEx();
+			StateEx newState;
+			while (!state.hasLost()) {
+				int choice = applyPolicy(state, state.legalMoves(), weights,
+						baseFunctions);
+				newState = state.clone();
+
+				newState.makeMove(state.legalMoves()[choice][0], state
+						.legalMoves()[choice][1]);
+
+				result.add(new Sample(state, newState, newState
+						.getRowsCleared()
+						- state.getRowsCleared()));
+
+				state = newState;
+			}
+
+			rowsCleared += state.getRowsCleared();
+		}
+
+		System.out.println("Average rows cleared:" + (double) rowsCleared
+				/ games);
+		return new Pair<List<Sample>, Double>(result, (double) rowsCleared
+				/ games);
+	}
+
+	protected void learnWeights() {
+		List<Sample> samples = new ArrayList<Sample>();
+		Matrix newWeights = null;
+		Matrix maxWeights = null;
+		double max = 0;
+		for (int i = 0; i < iterations; i++) {
+			Pair<List<Sample>, Double> pair = getSamplesByPlayingGame(gamesPerIteration,
+					weights, baseFunctions);
+			samples = pair.a();
+
+			if (max < pair.b()) {
+				max = pair.b();
+				maxWeights = weights;
+			}
+
+			newWeights = LSPI(samples, weights, baseFunctions);
+
+			if (newWeights != null) {
+				weights = newWeights;
+			} else {
+				System.out.println("LSPI didn't converge");
+			}
+		}
+
+		weights = maxWeights;
 		
-		/* Uncomment below to step through each
-		 * step in the game.. useful for debugging */
-		/*try {System.in.read();} catch (IOException e) {}*/
+		weights.transpose().printMatrix();
+	}
+
+	protected Matrix LSPI(List<Sample> samples, Matrix weights,
+			BaseFunctions baseFunctions) {
+		Matrix newWeights = weights.clone();
+		Matrix oldWeights;
+
+		Set<Matrix> values = new HashSet<Matrix>();
+
+		do {
+			if (values.contains(newWeights)) {
+				return null;
+			} else {
+				values.add(newWeights);
+			}
+			oldWeights = newWeights;
+			newWeights = LSTDQOPT(samples, oldWeights, baseFunctions);
+		} while (!oldWeights.equals(newWeights));
+
+		return newWeights;
+	}
+
+	protected Matrix LSTDQ(List<Sample> samples, Matrix weights,
+			BaseFunctions baseFunctions) {
+		Matrix A = Matrix.identity(baseFunctions.size()).mul(delta);
+		Matrix b = new Matrix(baseFunctions.size(), 1);
+
+		for (Sample sample : samples) {
+			Matrix bf = baseFunctions
+					.evaluate(sample.oldState, sample.newState);
+
+			StateEx predictedState = sample.newState.clone();
+
+			int choice = applyPolicy(predictedState, predictedState
+					.legalMoves(), weights, baseFunctions);
+			boolean doable = predictedState.makeMove(choice);
+
+			Matrix nbf = null;
+
+			if (doable)
+				nbf = baseFunctions.evaluate(sample.newState, predictedState);
+			else
+				nbf = new Matrix(baseFunctions.size(), 1);
+
+			Matrix temp = bf.sub(nbf.mul(discountFactor)).transpose();
+
+			Matrix sumOperand = bf.mul(temp);
+			A = A.add(sumOperand);
+			b = b.add(bf.mul(sample.reward));
+		}
+
+		return A.invert().mul(b);
+	}
+
+	protected Matrix LSTDQOPT(List<Sample> samples, Matrix weights,
+			BaseFunctions baseFunctions) {
+		Matrix B = Matrix.identity(baseFunctions.size()).mul(1 / delta);
+		Matrix b = new Matrix(baseFunctions.size(), 1);
+
+		for (Sample sample : samples) {
+			Matrix bf = baseFunctions
+					.evaluate(sample.oldState, sample.newState);
+
+			StateEx predictedState = sample.newState.clone();
+
+			int choice = applyPolicy(predictedState, predictedState
+					.legalMoves(), weights, baseFunctions);
+			boolean doable = predictedState.makeMove(predictedState
+					.legalMoves()[choice][0],
+					predictedState.legalMoves()[choice][1]);
+
+			Matrix nbf = null;
+
+			if (doable)
+				nbf = baseFunctions.evaluate(sample.newState, predictedState);
+			else
+				nbf = new Matrix(baseFunctions.size(), 1);
+
+			Matrix temp = bf.sub(nbf.mul(discountFactor));
+
+			Matrix factor1 = B.mul(bf);
+			Matrix factor2 = temp.transpose().mul(B);
+
+			double denominator = 1 + temp.dot(factor1);
+
+			B = B.sub(factor1.mul(factor2).mul(1 / denominator));
+
+			b = b.add(bf.mul(sample.reward));
+		}
+
+		return B.mul(b);
+	}
+
+	protected void initDellacherie(){
+		List<Double> weights = new ArrayList<Double>();
 		
+		baseFunctions.add(new BFLandingHeight());
+		weights.add(-1.0);
+
+		baseFunctions.add(new BFErodedCells());
+		weights.add(1.0);
+
+		baseFunctions.add(new BFRowTransitions());
+		weights.add(-1.0);
+
+		baseFunctions.add(new BFColumnTransitions());
+		weights.add(-1.0);
+
+		baseFunctions.add(new BFNumHoles());
+		weights.add(-4.0);
+
+		baseFunctions.add(new BFCumulativeWells());
+		weights.add(-1.0);
+
+		double[][] weightValues = new double[weights.size()][1];
+
+		for (int i = 0; i < weights.size(); i++) {
+			weightValues[i][0] = weights.get(i);
+		}
+
+		this.weights = new Matrix(weightValues);
+	}
+	
+	protected void initThiery(){
+		List<Double> weights = new ArrayList<Double>();
 		
-		/*Just in case something went wrong, 
-		 * we don't want an IndexOutOfBoundsException*/
-		return (maxHeuristicIndex > (-1) ) ? maxHeuristicIndex : 0;
+		 baseFunctions.add(new BFLandingHeight());
+		 weights.add(-12.63);
+				
+		 baseFunctions.add(new BFErodedCells());
+		 weights.add(6.6);
+				
+		 baseFunctions.add(new BFRowTransitions());
+		 weights.add(-9.22);
+				
+		 baseFunctions.add(new BFColumnTransitions());
+		 weights.add(-19.77);
+				
+		 baseFunctions.add(new BFNumHoles());
+		 weights.add(-13.08);
+				
+		 baseFunctions.add(new BFCumulativeWells());
+		 weights.add(-10.49);
+				
+		 baseFunctions.add(new BFHoleDepth());
+		 weights.add(-1.61);
+				
+		 baseFunctions.add(new BFRowsWithHoles());
+		 weights.add(-24.04);
+
+		double[][] weightValues = new double[weights.size()][1];
+
+		for (int i = 0; i < weights.size(); i++) {
+			weightValues[i][0] = weights.get(i);
+		}
+
+		this.weights = new Matrix(weightValues);
+	}
+	
+	void initLagoudakis(){
+		List<Double> weights = new ArrayList<Double>();
+		 //2700 rows cleared: -8.78951411243151;0.08151298534273177;431.6138387336361;1097.2245005375664;4.564176063822103;-0.9564016301739926;-9.207422350726727;432.3913694007997;-42.26627603559048;-46.52407063944807
+				
+		 //sum of absolute adjacent column height diffs
+		 baseFunctions.add(new BFAHD());
+		 weights.add(-8.78951411243151);
+				
+		 //difference of sum of absolute adjacent column height diffs
+		 baseFunctions.add(new BFAHDDiff());
+		 weights.add(0.08151298534273177);
+				
+		 baseFunctions.add(new BFCompletedRows());
+		 weights.add(431.6138387336361);
+				
+		 baseFunctions.add(new BFConstant(1.0));
+		 weights.add(1097.2245005375664);
+				
+		 baseFunctions.add(new BFMaxHeight());
+		 weights.add(4.564176063822103);
+				
+		 baseFunctions.add(new BFMaxHeightDiff());
+		 weights.add(-0.9564016301739926);
+			
+		 baseFunctions.add(new BFMeanHeight());
+		 weights.add(-9.207422350726727);
+				
+		 baseFunctions.add(new BFMeanHeightDiff());
+		 weights.add(432.3913694007997);
+				
+		 baseFunctions.add(new BFNumHoles());
+		 weights.add(-42.26627603559048);
+				
+		 baseFunctions.add(new BFNumHolesDiff());
+		 weights.add(-46.52407063944807);
+		 
+		 double[][] finalWeights = new double[weights.size()][1];
+		 
+		 for(int i =0; i<weights.size();i++){
+			 finalWeights[i][0] = weights.get(i);
+		 }
+		 
+		 this.weights = new Matrix(finalWeights);
+	}
+
+	public int applyPolicy(StateEx s, int[][] legalMoves, Matrix weights,
+			BaseFunctions baseFunctions) {
+		StateEx newState;
+
+		int bestMove = 0;
+		double value = Double.NEGATIVE_INFINITY;
+
+		for (int i = 0; i < legalMoves.length; i++) {
+			newState = s.clone();
+			if (newState.makeMove(i)) {
+				double temp = calcHeuristic(s, newState, weights, baseFunctions);
+
+				if (temp > value) {
+					value = temp;
+					bestMove = i;
+				}
+			}
+		}
+
+		return bestMove;
+	}
+
+	public int pickMove(State s, int[][] legalMoves) {
+		return applyPolicy(new StateEx(s), legalMoves, weights, baseFunctions);
+
+	}
+
+	public double calcHeuristic(StateEx oldState, StateEx newState, Matrix weights,
+			BaseFunctions baseFunctions) {
+		Matrix fValues = baseFunctions.evaluate(oldState, newState);
+
+		return weights.dot(fValues);
 	}
 
 	public static void main(String[] args) {
-		State s = new State();
-		new TFrame(s);
+		int n = 10;
+		int rows = 0;
+		int moves = 0;
+		// State state = new State();
+		// TFrame frame = new TFrame(state);
 		PlayerSkeleton p = new PlayerSkeleton();
-		while(!s.hasLost()) {
-			s.makeMove( p.pickMove( s,s.legalMoves() ) );
-			s.draw();
-			s.drawNext(0,0);
-			/*try {
-				Thread.sleep(10);
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}*/
-		}
-		System.out.println("You have completed "+s.getRowsCleared()+" rows.");
-	}
-	
-	
-	/* This class is where all the action is.
-	 * We need to experiment with different weights 
-	 * & uses of different heuristics..
-	 */
-	private class Heuristic{
-		//Current State
-		private State s;
-		
-		//What the state will look like if we complete the next legal move
-		private StateCopy sc;
-		
-		//Weighting for different heuristics
-		private static final double ROWS_COMPLETED_WEIGHT     = 388.43;
-		private static final double DIF_MAX_HEIGHT_WEIGHT     = -4.82;
-		private static final double DIF_HOLES_WEIGHT          = -111.74;
-		private static final double DIF_AVERAGE_HEIGHT_WEIGHT = -379.08;
-		private static final double DIF_ABS_HEIGHT_WEIGHT     = -20.79;
-		private static final double DIF_IN_HEIGHT_WEIGHT	  = -3.25;
-		private static final double DIF_IN_TROUGHS_WEIGHT	  = -50;
-		private boolean hasLost = false;
-		
-		public Heuristic(State s, int[] m){
-			this.s = s;
-						
-			this.sc = new StateCopy(s);
-			this.sc.makeMove(m);
-		}
-		
-		public double getTotalHeuristicValue(){
-			
-			if(hasLost)
-				return PlayerSkeleton.MIN/2;// We really, reeeeally don't want to choose this move..
-			
-			double rowsCompleted = getRowsCompleted(sc);
-			double differenceInMaxHeight = getMaxHeight(sc) - getMaxHeight(s);
-			double differenceInHolesInBoard = getHoles(sc) - getHoles(s);
-			double differenceInAbsHeightDifference = getAbsHeightDifference(sc)- getAbsHeightDifference(s);
-			double differenceInAverageHeight = getAverageHeight(sc) - getAverageHeight(s);
-			double differenceBetweenMaxAndMin = getMaxHeight(sc) - getMinHeight(sc);
-			double differenceBetweenDeepTroughs = getDeepTroughs(sc) - getDeepTroughs(s);
-
-			double totalHeuristic = (rowsCompleted * ROWS_COMPLETED_WEIGHT) +
-									(differenceInMaxHeight * DIF_MAX_HEIGHT_WEIGHT) +
-									(differenceInHolesInBoard * DIF_HOLES_WEIGHT) +
-									(differenceInAverageHeight * DIF_AVERAGE_HEIGHT_WEIGHT) +
-									(differenceInAbsHeightDifference * DIF_ABS_HEIGHT_WEIGHT) +
-									(differenceBetweenMaxAndMin * DIF_IN_HEIGHT_WEIGHT) +
-									(differenceBetweenDeepTroughs * DIF_IN_TROUGHS_WEIGHT)
-									;
-			
-			return totalHeuristic;
-		}
-			
-		public int getHoles(Object s){
-			int field[][], top[], cols = State.COLS;
-			try{
-				field = State.class.cast(s).getField();
-				top = State.class.cast(s).getTop();
-			}catch(ClassCastException e){
-				try{
-					field = StateCopy.class.cast(s).getField();
-					top = StateCopy.class.cast(s).getTop();
-				}catch(ClassCastException e2){
-					System.err.println("Error casting object");
-					return -1000;
+		for (int i = 0; i < n; i++) {
+			moves = 0;
+			State s = new State();
+			// s.label = frame.label;
+			while (!s.hasLost()) {
+				if (moves % 10000 == 10000-1) {
+					System.out.println("Rows cleared so far:"
+							+ s.getRowsCleared());
 				}
-			}
-			
-			int holes = 0;
-			for(int i = 0; i < cols; i++)
-				for(int j = top[i] - 2; j > 0; j--){
-					try{
-						if(field[j][i] == 0 && field[j+1][i] != 0)
-							holes++;
-					}catch(IndexOutOfBoundsException e){
-						//Thats ok, means we are at the top of the board
-					}
-				}
-				
-			return holes;
-		}
-		
-		// This function looks for vertical gaps
-		// of a depth > 3. This is because the
-		// likelihood of getting a piece to fill
-		// this gap is only 1/7 (as opposed to 3/7
-		// if the trough is of a depth == 2
-		//
-		// EDIT: I've changed it to look for vertical
-		// 		 gaps of depth 2 because it seems 
-		//		 to perform better?!
-		public int getDeepTroughs(Object s){
-			int troughs = 0;
-			
-			int field[][], top[];
-			try{
-				field = State.class.cast(s).getField();
-				top = State.class.cast(s).getTop();
-			}catch(ClassCastException e){
-				try{
-					field = StateCopy.class.cast(s).getField();
-					top = StateCopy.class.cast(s).getTop();
-				}catch(ClassCastException e2){
-					System.err.println("Error casting object");
-					return -1000;
-				}
+				s.makeMove(p.pickMove(s, s.legalMoves()));
+				moves++;
+				// s.draw();
+				// s.drawNext(0, 0);
 			}
 
-			for(int col = 0; col < top.length; col++){
-				int row = top[col];
-				try{
-					if(col == 0){
-						//Special case for the first column..
-						boolean isTroff = field[row+1][col+1] != 0 && 
-										  field[row+2][col+1] != 0;// && 
-										  //field[row+3][col+1] != 0;
-						if(isTroff)
-							troughs++;
-					}
-					else if(col == top.length - 1){
-						//Special case for the last column..
-						boolean isTroff = field[row+1][col-1] != 0 && 
-										  field[row+2][col-1] != 0;// && 
-										  //field[row+3][col-1] != 0;
-						if(isTroff)
-							troughs++;
-					}
-					else{
-						boolean isTroff = field[row+1][col+1] != 0 && field[row+1][col-1] != 0 && 
-										  field[row+2][col+1] != 0 && field[row+2][col-1] != 0;// && 
-										  //field[row+3][col+1] != 0 && field[row+3][col-1] != 0;
-						if(isTroff)
-							troughs++;
-					}
-				}catch(IndexOutOfBoundsException e){}
-			}
-			
-			return troughs;
+			rows += s.getRowsCleared();
 		}
-	
-		public double getAbsHeightDifference(Object s){
-			int top[];
-			try{
-				top = State.class.cast(s).getTop();
-			}catch(ClassCastException e){
-				try{
-					top = StateCopy.class.cast(s).getTop();
-				}catch(ClassCastException e2){
-					System.err.println("Error casting object");
-					return -1000;
-				}
-			}
 
-			int sum = 0;
-			
-			try{
-				for(int i = 0; i < top.length; i++){
-					sum += Math.abs(top[i] - top[i+1]);
-				}
-			}catch(IndexOutOfBoundsException e){
-				//Thats ok, means we have looked at all rows..
-			}
-				
-			return sum;
-		}
-		
-		public double getMinHeight(Object s){
-			int top[];
-			try{
-				top = State.class.cast(s).getTop();
-			}catch(ClassCastException e){
-				try{
-					top = StateCopy.class.cast(s).getTop();
-				}catch(ClassCastException e2){
-					System.err.println("Error casting object");
-					return -1000;
-				}
-			}
+		System.out.println("Average rows:" + (double) rows / n);
 
-			int min= PlayerSkeleton.MAX;
-			for(int i : top){
-				if(i<min)
-					min=i;
-			}
-			return min;
-		}
-		
-		public double getMaxHeight(Object s){
-			int top[];
-			try{
-				top = State.class.cast(s).getTop();
-			}catch(ClassCastException e){
-				try{
-					top = StateCopy.class.cast(s).getTop();
-				}catch(ClassCastException e2){
-					System.err.println("Error casting object");
-					return -1000;
-				}
-			}
-
-			int max = -1;
-			for(int i : top){
-				if(i>max)
-					max=i;
-			}
-			return max;
-		}
-				
-		public double getAverageHeight(Object s){
-			int top[];
-			try{
-				top = State.class.cast(s).getTop();
-			}catch(ClassCastException e){
-				try{
-					top = StateCopy.class.cast(s).getTop();
-				}catch(ClassCastException e2){
-					System.err.println("Error casting object");
-					return -1000;
-				}
-			}
-
-			double sum = 0;
-			for(int i : top)
-				sum+=i;
-
-			return sum/(double)top.length;
-		}
-			
-		public double getRowsCompleted(Object s){
-			int rowsCleared;
-			try{
-				rowsCleared = State.class.cast(s).getRowsCleared();
-			}catch(ClassCastException e){
-				try{
-					rowsCleared = StateCopy.class.cast(s).getRowsCleared();
-				}catch(ClassCastException e2){
-					System.err.println("Error casting object");
-					return -1000;
-				}
-			}
-			return rowsCleared;
-		}
-		
-		/* Simple class which just copies a given state
-		 * and simulates the 'State' class so that we 
-		 * can freely and safely test future moves..
-		 */
-		private class StateCopy {
-			public final int COLS = 10;
-			public final int ROWS = 21;
-			public final int N_PIECES = 7;
-			public final int ORIENT = 0;
-			public final int SLOT = 1;
-			
-			private int turn = 0;
-			private int cleared = 0;
-			protected int nextPiece;
-			
-			private int[][] field = new int[ROWS][COLS];
-			private int[] top = new int[COLS];
-			
-			protected int[][][] legalMoves = new int[N_PIECES][][];
-			protected int[] pOrients = {1,2,4,4,4,2,2};
-			protected int[][] pWidth = {
-					{2},
-					{1,4},
-					{2,3,2,3},
-					{2,3,2,3},
-					{2,3,2,3},
-					{3,2},
-					{3,2}
-			};
-	
-			private int[][] pHeight = {
-					{2},
-					{4,1},
-					{3,2,3,2},
-					{3,2,3,2},
-					{3,2,3,2},
-					{2,3},
-					{2,3}
-			};
-			private int[][][] pBottom = {
-				{{0,0}},
-				{{0},{0,0,0,0}},
-				{{0,0},{0,1,1},{2,0},{0,0,0}},
-				{{0,0},{0,0,0},{0,2},{1,1,0}},
-				{{0,1},{1,0,1},{1,0},{0,0,0}},
-				{{0,0,1},{1,0}},
-				{{1,0,0},{0,1}}
-			};
-			private int[][][] pTop = {
-				{{2,2}},
-				{{4},{1,1,1,1}},
-				{{3,1},{2,2,2},{3,3},{1,1,2}},
-				{{1,3},{2,1,1},{3,3},{2,2,2}},
-				{{3,2},{2,2,2},{2,3},{1,2,1}},
-				{{1,2,2},{3,2}},
-				{{2,2,1},{2,3}}
-			};
-			
-			public StateCopy(State s){
-				for(int i = 0; i < N_PIECES; i++) {
-					int n = 0;
-					for(int j = 0; j < pOrients[i]; j++) {
-						n += COLS+1-pWidth[i][j];
-					}
-					legalMoves[i] = new int[n][2];
-					n = 0;
-					for(int j = 0; j < pOrients[i]; j++) {
-						for(int k = 0; k < COLS+1-pWidth[i][j];k++) {
-							legalMoves[i][n][ORIENT] = j;
-							legalMoves[i][n][SLOT] = k;
-							n++;
-						}
-					}
-				}
-				
-				nextPiece = s.getNextPiece();
-				
-				int currentLegalMoves[][] = s.legalMoves();
-				for(int i = 0; i < this.legalMoves[nextPiece].length;i++)
-					for(int j = 0; j < this.legalMoves[nextPiece][i].length;j++)
-						this.legalMoves[nextPiece][i][j] = currentLegalMoves[i][j];
-				
-				int currentField[][] = s.getField();
-				for(int i = 0; i < ROWS;i++)
-					for(int j = 0; j < COLS;j++)
-						this.field[i][j] = currentField[i][j];
-				
-				int currentTop[] = s.getTop();
-				for(int i = 0; i  < currentTop.length; i++)
-					this.top[i] = currentTop[i];
-			}
-	
-			public int[][] getField() {
-				return field;
-			}
-			
-			public int[] getTop() {
-				return top;
-			}
-	
-			public int getRowsCleared() {
-				return cleared;
-			}
-			
-			public void makeMove(int[] move) {
-				makeMove(move[ORIENT],move[SLOT]);
-			}
-			
-			public void makeMove(int orient, int slot) {
-				turn++;
-				int height = top[slot]-pBottom[nextPiece][orient][0];
-				for(int c = 1; c < pWidth[nextPiece][orient];c++) {
-					height = Math.max(height,top[slot+c]-pBottom[nextPiece][orient][c]);
-				}
-				
-				if(height+pHeight[nextPiece][orient] >= ROWS){
-					hasLost = true;
-					return;
-				}
-	
-				
-				for(int i = 0; i < pWidth[nextPiece][orient]; i++) {
-					for(int h = height+pBottom[nextPiece][orient][i]; h < height+pTop[nextPiece][orient][i]; h++) {
-						field[h][i+slot] = turn;
-					}
-				}
-				
-				for(int c = 0; c < pWidth[nextPiece][orient]; c++) {
-					top[slot+c]=height+pTop[nextPiece][orient][c];
-				}
-				
-				int rowsCleared = 0;
-				
-				for(int r = height+pHeight[nextPiece][orient]-1; r >= height; r--) {
-					boolean full = true;
-					for(int c = 0; c < COLS; c++) {
-						if(field[r][c] == 0) {
-							full = false;
-							break;
-						}
-					}
-	
-					if(full) {
-						rowsCleared++;
-						cleared++;
-						for(int c = 0; c < COLS; c++) {
-							for(int i = r; i < top[c]; i++)
-								field[i][c] = field[i+1][c];
-							top[c]--;
-							while(top[c]>=1 && field[top[c]-1][c]==0)	top[c]--;
-						}
-					}
-				}
-			}		
-		}	
 	}
 
 }
