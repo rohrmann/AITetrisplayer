@@ -5,6 +5,1333 @@ import java.util.List;
 import java.util.Set;
 
 /**
+ * This class is an extended version of the State class and is used to evaluate the base functions.
+ * @author rohrmann
+ *
+ */
+class StateEx {
+
+	public static final int COLS = 10;
+	public static final int ROWS = 21;
+	public static final int N_PIECES = 7;
+
+	public boolean lost = false;
+	
+	// current turn
+	private int turn = 0;
+	private int cleared = 0;
+
+	private int landingHeight;
+	private int erodedPieces;
+	private int lastPiece;
+	private double heightPiece;
+
+	// each square in the grid - int means empty - other values mean the turn it
+	// was placed
+	private int[][] field = new int[ROWS][COLS];
+	// top row+1 of each column
+	// 0 means empty
+	private int[] top = new int[COLS];
+
+	// number of next piece
+	protected int nextPiece;
+
+	// all legal moves - first index is piece type - then a list of 2-length
+	// arrays
+	protected static int[][][] legalMoves = new int[N_PIECES][][];
+
+	// indices for legalMoves
+	public static final int ORIENT = 0;
+	public static final int SLOT = 1;
+
+	// possible orientations for a given piece type
+	protected static int[] pOrients = { 1, 2, 4, 4, 4, 2, 2 };
+
+	// the next several arrays define the piece vocabulary in detail
+	// width of the pieces [piece ID][orientation]
+	protected static int[][] pWidth = { { 2 }, { 1, 4 }, { 2, 3, 2, 3 },
+			{ 2, 3, 2, 3 }, { 2, 3, 2, 3 }, { 3, 2 }, { 3, 2 } };
+	// height of the pieces [piece ID][orientation]
+	private static int[][] pHeight = { { 2 }, { 4, 1 }, { 3, 2, 3, 2 },
+			{ 3, 2, 3, 2 }, { 3, 2, 3, 2 }, { 2, 3 }, { 2, 3 } };
+	private static int[][][] pBottom = { { { 0, 0 } },
+			{ { 0 }, { 0, 0, 0, 0 } },
+			{ { 0, 0 }, { 0, 1, 1 }, { 2, 0 }, { 0, 0, 0 } },
+			{ { 0, 0 }, { 0, 0, 0 }, { 0, 2 }, { 1, 1, 0 } },
+			{ { 0, 1 }, { 1, 0, 1 }, { 1, 0 }, { 0, 0, 0 } },
+			{ { 0, 0, 1 }, { 1, 0 } }, { { 1, 0, 0 }, { 0, 1 } } };
+	private static int[][][] pTop = { { { 2, 2 } }, { { 4 }, { 1, 1, 1, 1 } },
+			{ { 3, 1 }, { 2, 2, 2 }, { 3, 3 }, { 1, 1, 2 } },
+			{ { 1, 3 }, { 2, 1, 1 }, { 3, 3 }, { 2, 2, 2 } },
+			{ { 3, 2 }, { 2, 2, 2 }, { 2, 3 }, { 1, 2, 1 } },
+			{ { 1, 2, 2 }, { 3, 2 } }, { { 2, 2, 1 }, { 2, 3 } } };
+
+	// initialize legalMoves
+	{
+		// for each piece type
+		for (int i = 0; i < N_PIECES; i++) {
+			// figure number of legal moves
+			int n = 0;
+			for (int j = 0; j < pOrients[i]; j++) {
+				// number of locations in this orientation
+				n += COLS + 1 - pWidth[i][j];
+			}
+			// allocate space
+			legalMoves[i] = new int[n][2];
+			// for each orientation
+			n = 0;
+			for (int j = 0; j < pOrients[i]; j++) {
+				// for each slot
+				for (int k = 0; k < COLS + 1 - pWidth[i][j]; k++) {
+					legalMoves[i][n][ORIENT] = j;
+					legalMoves[i][n][SLOT] = k;
+					n++;
+				}
+			}
+		}
+
+	}
+
+	public int[][] getField() {
+		return field;
+	}
+
+	public int[] getTop() {
+		return top;
+	}
+
+	public static int[] getpOrients() {
+		return pOrients;
+	}
+
+	public static int[][] getpWidth() {
+		return pWidth;
+	}
+
+	public static int[][] getpHeight() {
+		return pHeight;
+	}
+
+	public static int[][][] getpBottom() {
+		return pBottom;
+	}
+
+	public static int[][][] getpTop() {
+		return pTop;
+	}
+
+	public int getNextPiece() {
+		return nextPiece;
+	}
+
+	public boolean hasLost() {
+		return lost;
+	}
+
+	public int getRowsCleared() {
+		return cleared;
+	}
+
+	public int getTurnNumber() {
+		return turn;
+	}
+
+	// constructor
+	public StateEx(State state) {
+		lost = state.lost;
+		turn = state.getTurnNumber();
+		cleared = state.getRowsCleared();
+		landingHeight = -1;
+		erodedPieces = 0;
+		lastPiece = -1;
+		heightPiece = -1;
+		nextPiece = state.nextPiece;
+		
+		top = state.getTop().clone();
+		field = Helper.clone(state.getField());
+	}
+	
+	public StateEx(){
+		lost = false;
+		turn = 0;
+		cleared =0;
+		landingHeight = -1;
+		erodedPieces = 0;
+		lastPiece = -1;
+		heightPiece = -1.0;
+		nextPiece = randomPiece();
+	}
+
+	// random integer, returns 0-6
+	private int randomPiece() {
+		return (int) (Math.random() * N_PIECES);
+	}
+
+	// gives legal moves for
+	public int[][] legalMoves() {
+		return legalMoves[nextPiece];
+	}
+
+	// make a move based on the move index - its order in the legalMoves list
+	public boolean makeMove(int move) {
+		return makeMove(legalMoves[nextPiece][move]);
+	}
+
+	// make a move based on an array of orient and slot
+	public boolean makeMove(int[] move) {
+		return makeMove(move[ORIENT], move[SLOT]);
+	}
+
+	// returns false if you lose - true otherwise
+	public boolean makeMove(int orient, int slot) {
+		turn++;
+		// height if the first column makes contact
+		int height = top[slot] - pBottom[nextPiece][orient][0];
+		// for each column beyond the first in the piece
+		for (int c = 1; c < pWidth[nextPiece][orient]; c++) {
+			height = Math.max(height, top[slot + c]
+					- pBottom[nextPiece][orient][c]);
+		}
+
+		// check if game ended
+		if (height + pHeight[nextPiece][orient] >= ROWS) {
+			lost = true;
+			return false;
+		}
+
+		landingHeight = height;
+		erodedPieces = 0;
+		lastPiece = nextPiece;
+		//save the landing height of the current piece
+		heightPiece = landingHeight + (pHeight[nextPiece][orient]-1) / 2.0;
+
+		// for each column in the piece - fill in the appropriate blocks
+		for (int i = 0; i < pWidth[nextPiece][orient]; i++) {
+
+			// from bottom to top of brick
+			for (int h = height + pBottom[nextPiece][orient][i]; h < height
+					+ pTop[nextPiece][orient][i]; h++) {
+				field[h][i + slot] = turn;
+			}
+		}
+
+		// adjust top
+		for (int c = 0; c < pWidth[nextPiece][orient]; c++) {
+			top[slot + c] = height + pTop[nextPiece][orient][c];
+		}
+
+		int rowsCleared = 0;
+
+		// check for full rows - starting at the top
+		for (int r = height + pHeight[nextPiece][orient] - 1; r >= height; r--) {
+			// check all columns in the row
+			boolean full = true;
+			for (int c = 0; c < COLS; c++) {
+				if (field[r][c] == 0) {
+					full = false;
+					break;
+				}
+			}
+			// if the row was full - remove it and slide above stuff down
+			if (full) {
+				rowsCleared++;
+				cleared++;
+				// for each column
+				for (int c = 0; c < COLS; c++) {
+					//check whether the eroded cell at (r,c) belongs to the last piece.
+					if (field[r][c] == turn) {
+						erodedPieces++;
+					}
+					// slide down all bricks
+					for (int i = r; i < top[c]; i++) {
+						field[i][c] = field[i + 1][c];
+					}
+					// lower the top
+					top[c]--;
+					while (top[c] >= 1 && field[top[c] - 1][c] == 0)
+						top[c]--;
+				}
+			}
+		}
+
+		// pick a new piece
+		nextPiece = randomPiece();
+
+		return true;
+	}
+
+	
+	@Override
+	public StateEx clone() {
+		StateEx result = new StateEx();
+		result.cleared = cleared;
+		result.field = Helper.clone(field);
+		result.top = top.clone();
+		result.turn = turn;
+		result.nextPiece = nextPiece;
+
+		return result;
+	}
+
+	public int getMaxHeight() {
+		int max = top[0];
+
+		for (int i = 1; i < COLS; i++) {
+			if (max < top[i]) {
+				max = top[i];
+			}
+		}
+		return max;
+	}
+
+	public int getNumHoles() {
+		int result = 0;
+		for (int c = 0; c < COLS; c++) {
+			for (int r = 0; r < top[c] - 1; r++) {
+				if (field[r][c] == 0) {
+					result++;
+				}
+			}
+		}
+
+		return result;
+	}
+
+	public double getMeanHeight() {
+		double result = 0;
+
+		for (int c = 0; c < COLS; c++) {
+			result += top[c];
+		}
+
+		return result / COLS;
+	}
+
+	public int getAbsoluteHeightDiff() {
+		int result = 0;
+
+		for (int c = 0; c < COLS - 1; c++) {
+			result += Math.abs(top[c] - top[c + 1]);
+		}
+
+		return result;
+	}
+
+	public int getTop(int column) {
+		return top[column];
+	}
+
+	public static StateEx getRandomStateEx() {
+		StateEx result = new StateEx();
+
+		for (int i = 0; i < ROWS - 1; i++) {
+			for (int j = 0; j < COLS; j++) {
+				if (Math.random() < 0.75) {
+					result.field[i][j] = 1;
+				} else {
+					result.field[i][j] = 0;
+				}
+			}
+		}
+
+		for (int c = 0; c < COLS; c++) {
+			for (int r = ROWS - 1; r >= 0; r--) {
+				if (result.field[r][c] != 0) {
+					result.top[c] = r + 1;
+					break;
+				}
+			}
+		}
+
+		return result;
+	}
+
+	public void clear() {
+		for (int i = 0; i < ROWS; i++) {
+			for (int j = 0; j < COLS; j++) {
+				field[i][j] = 0;
+			}
+		}
+
+		nextPiece = randomPiece();
+		cleared = 0;
+		turn = 0;
+		lost = false;
+		
+		erodedPieces = 0;
+		landingHeight = -1;
+		heightPiece = -1.0;
+		lastPiece = -1;
+	}
+
+	public int getLandingHeight() {
+		return landingHeight;
+	}
+
+	public int getLastPiece() {
+		return lastPiece;
+	}
+
+	public double getHeightPiece() {
+		return heightPiece;
+	}
+
+	public int getErodedCells() {
+		return erodedPieces;
+	}
+	
+	@Override
+	public int hashCode(){
+		int result = 0;
+		int temp = 0;
+		int counter = 0;
+		
+		for(int r = 0; r < State.ROWS-1;r++){
+			for(int c =0; c < State.COLS;c++){
+				if(field[r][c] != 0){
+					temp |= 1 << counter;
+				}
+				
+				counter++;
+				
+				if(counter >= 32){
+					result ^= temp;
+					counter =0;
+				}
+			}
+		}
+		
+		result ^= temp;
+		
+		return result;
+	}
+}
+
+
+/**
+ * Interface for the base functions
+ * 
+ * @author rohrmann
+ *
+ */
+interface BaseFunction {
+	public double evaluate(StateEx oldState, StateEx newState);
+
+}
+
+/**
+ * Aggregator class for the base functions
+ * @author rohrmann
+ *
+ */
+class BaseFunctions {
+
+	List<BaseFunction> baseFunctions;
+
+	public BaseFunctions() {
+		baseFunctions = new ArrayList<BaseFunction>();
+	}
+
+	public void add(BaseFunction function) {
+		baseFunctions.add(function);
+	}
+
+	public Matrix evaluate(StateEx oldState, StateEx newState) {
+		double[][] result = new double[baseFunctions.size()][1];
+
+		int i = 0;
+		for (BaseFunction function : baseFunctions) {
+			result[i++][0] = function.evaluate(oldState, newState);
+		}
+
+		return new Matrix(result);
+	}
+
+	public int size() {
+		return baseFunctions.size();
+	}
+
+}
+
+/**
+ * base function which calculates the absolute height difference between two adjacent columns
+ * @author rohrmann
+ *
+ */
+class BFAAHD implements BaseFunction {
+
+	private int column;
+
+	public BFAAHD(int column) {
+		this.column = column;
+	}
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return Math.abs(newState.getTop(column) - newState.getTop(column + 1));
+	}
+
+}
+
+/**
+ * base function which calculates the difference of the absolute height difference between two adjacent columns
+ * @author rohrmann
+ *
+ */
+class BFAAHDDiff implements BaseFunction {
+	private int column;
+
+	public BFAAHDDiff(int column) {
+		this.column = column;
+	}
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return Math.abs(newState.getTop(column) - newState.getTop(column + 1))
+				- Math.abs(oldState.getTop(column) - newState.getTop(column)
+						- 1);
+	}
+
+}
+
+/**
+ * base function which calculates the absolute height difference = sum of absolute height differences of adjacent columns
+ * @author rohrmann
+ *
+ */
+class BFAHD implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getAbsoluteHeightDiff();
+	}
+
+}
+
+/**
+ * base function which calculates the difference of the absolute height difference between the old and the
+ * new state. The absoulte height difference is the sum of the absolute height differences of adjacent columns.
+ * @author rohrmann
+ *
+ */
+class BFAHDDiff implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getAbsoluteHeightDiff()
+				- oldState.getAbsoluteHeightDiff();
+	}
+
+}
+
+/**
+ * base functions which returns the height of a specified column
+ * @author rohrmann
+ *
+ */
+class BFColumnHeight implements BaseFunction {
+	private int index;
+
+	public BFColumnHeight(int index) {
+		this.index = index;
+	}
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getTop(index);
+	}
+
+}
+
+/**
+ * base function which calculates the height difference of a specified column between the new and the old state
+ * @author rohrmann
+ *
+ */
+class BFColumnHeightDiff implements BaseFunction {
+	private int column;
+
+	public BFColumnHeightDiff(int column) {
+		this.column = column;
+	}
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getTop(column) - oldState.getTop(column);
+	}
+
+}
+
+/**
+ * base functions which calculates the column transition. A column transition occurs if a full cell
+ * is directly below an empty cell in the same column or vice versa. The bottom row is considered to 
+ * contain full cells.
+ * @author rohrmann
+ *
+ */
+class BFColumnTransitions implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		int result = 0;
+		int[][] field = newState.getField();
+
+		for (int c = 0; c < State.COLS; c++) {
+			boolean full = true;
+			for (int r = 0; r < State.ROWS - 1; r++) {
+				if (full == true && field[r][c] == 0) {
+					result++;
+					full = false;
+				} else if (full == false && field[r][c] != 0) {
+					result++;
+					full = true;
+				}
+			}
+		}
+
+		return result;
+	}
+
+}
+
+/**
+ * base function which returns the completed rows after one move
+ * @author rohrmann
+ *
+ */
+class BFCompletedRows implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getRowsCleared() - oldState.getRowsCleared();
+	}
+
+}
+
+/**
+ * base function which returns a constant value
+ * @author rohrmann
+ *
+ */
+class BFConstant implements BaseFunction {
+	private double value;
+
+	public BFConstant(double value) {
+		this.value = value;
+	}
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return value;
+	}
+
+}
+
+/**
+ * base function which returns the sum of all wells. A well is defined to be a one cell wide hole thus it has
+ * to have full neighboring cells. The value of the well depends on how many wells are directly above this well.
+ * e.g. | X X|
+ * 		| XXX|
+ * contains 3 wells:
+ * 		|wXwX|
+ * 		|wXXX|
+ * and the values are
+ * 		|1X1X|
+ * 		|2XXX|
+ * @author rohrmann
+ *
+ */
+class BFCumulativeWells implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		int result = 0;
+		int[][] field = newState.getField();
+
+		for (int r = 0; r < State.ROWS - 1; r++) {
+			for (int c = 0; c < State.COLS; c++) {
+				if (isWell(field, r, c)) {
+					result++;
+
+					for (int r2 = r + 1; r2 < State.ROWS - 1; r2++) {
+						if (isWell(field, r2, c)) {
+							result++;
+						} else {
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		return result;
+	}
+
+	private boolean isWell(int[][] field, int r, int c) {
+		if (field[r][c] == 0) {
+			if (c == 0) {
+				return field[r][c + 1] != 0;
+			} else if (c == State.COLS - 1) {
+				return field[r][c - 1] != 0;
+			} else {
+				return field[r][c + 1] != 0 && field[r][c - 1] != 0;
+			}
+		}
+
+		return false;
+	}
+
+}
+
+/**
+ * base function which returns the product of the completed rows and the eroded cells of the last place
+ * piece.
+ * @author rohrmann
+ *
+ */
+class BFErodedCells implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getErodedCells()
+				* (newState.getRowsCleared() - oldState.getRowsCleared());
+	}
+
+}
+
+/**
+ * base function which returns the sum of all hole depths on the board. The depth of a hole is defined as
+ * the number of full cells which are directly above the hole.
+ * @author rohrmann
+ *
+ */
+class BFHoleDepth implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		int[][] field = newState.getField();
+		int result = 0;
+
+		for (int c = 0; c < State.COLS; c++) {
+			boolean hole = false;
+			for (int r = 0; r < newState.getTop(c); r++) {
+				if (hole == true && field[r][c] != 0) {
+					result++;
+				} else if (field[r][c] == 0) {
+					hole = true;
+				}
+
+			}
+		}
+
+		return result;
+	}
+
+}
+
+/**
+ * base function which returns the landing height of the last moved piece. The landing height is the middle point of
+ * the piece.
+ * @author rohrmann
+ *
+ */
+class BFLandingHeight implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getHeightPiece();
+	}
+
+}
+
+/**
+ * base function which returns the maximum height of the new state.
+ * @author rohrmann
+ *
+ */
+class BFMaxHeight implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getMaxHeight();
+	}
+
+}
+
+/**
+ * base function which returns the change of the maximum height between the new and the old state.
+ * @author rohrmann
+ *
+ */
+class BFMaxHeightDiff implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getMaxHeight() - oldState.getMaxHeight();
+	}
+
+}
+
+/**
+ * base function which returns the mean height of the new state.
+ * @author rohrmann
+ *
+ */
+class BFMeanHeight implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getMeanHeight();
+	}
+
+}
+
+/**
+ * Base function which returns the change of the mean height between the new and the old state.s
+ * @author rohrmann
+ *
+ */
+class BFMeanHeightDiff implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getMeanHeight() - oldState.getMeanHeight();
+	}
+
+}
+
+/**
+ * Base function which returns the number of holes in the new state. A hole is defined as an empty cell
+ * which is covered by a full cell. The full cell doesn't have to be directly above the empty cell.
+ * @author rohrmann
+ *
+ */
+class BFNumHoles implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getNumHoles();
+	}
+
+}
+
+/**
+ * Base function which return the difference of the number of holes of the new state and the number of holes
+ * of the old state.
+ * @author rohrmann
+ *
+ */
+class BFNumHolesDiff implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		return newState.getNumHoles() - oldState.getNumHoles();
+	}
+
+}
+
+/**
+ * Base function which returns the number of rows which contain at least one hole. In order to be a hole, an empty cell
+ * has to be covered by a full cell which doesn't have to be directly above the empty cell.
+ * @author rohrmann
+ *
+ */
+class BFRowsWithHoles implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		int result = 0;
+
+		int[][] field = newState.getField();
+
+		for (int r = 0; r < newState.getMaxHeight(); r++) {
+			for (int c = 0; c < State.COLS; c++) {
+				if (field[r][c] == 0 && newState.getTop(c) > c) {
+					result++;
+					break;
+				}
+			}
+		}
+
+		return result;
+	}
+
+}
+
+/**
+ * base function which returns the number of row transition. A row transition is a change from a full cell to an emtpy
+ * cell or vice versa in the same row. The side walls are considered to be full cells.
+ * @author rohrmann
+ *
+ */
+class BFRowTransitions implements BaseFunction {
+
+	@Override
+	public double evaluate(StateEx oldState, StateEx newState) {
+		int[][] field = newState.getField();
+
+		int result = 0;
+
+		for (int i = 0; i < State.ROWS - 1; i++) {
+			boolean full = true;
+			for (int j = 0; j < State.COLS; j++) {
+				if (full == true && field[i][j] == 0) {
+					result++;
+					full = false;
+				} else if (full == false && field[i][j] != 0) {
+					result++;
+					full = true;
+				}
+			}
+
+			if (full == false) {
+				result++;
+			}
+		}
+
+		return result;
+	}
+
+}
+
+/**
+ * Convenience class which contains helpful methods
+ * @author rohrmann
+ *
+ */
+class Helper {
+
+	public static final double eps = 0.00001;
+
+	public static double[][] clone(double[][] array) {
+		if (array.length == 0) {
+			return new double[0][0];
+		}
+
+		double[][] result = new double[array.length][array[0].length];
+
+		for (int i = 0; i < array.length; i++) {
+			System.arraycopy(array[i], 0, result[i], 0, array[i].length);
+		}
+
+		return result;
+	}
+
+	public static int[][] clone(int[][] array) {
+		if (array.length == 0) {
+			return new int[0][0];
+		}
+
+		int[][] result = new int[array.length][array[0].length];
+
+		for (int i = 0; i < array.length; i++) {
+			System.arraycopy(array[i], 0, result[i], 0, array[i].length);
+		}
+
+		return result;
+	}
+
+}
+
+/**
+ * This class represents a matrix whose values are doubles. It implements the most basic
+ * operations on matrices.
+ * @author rohrmann
+ *
+ */
+class Matrix implements Cloneable {
+	private int m;
+	private int n;
+	private double[][] values;
+
+	public Matrix() {
+		m = 0;
+		n = 0;
+
+		initMatrix();
+	}
+
+	public Matrix(int m, int n) {
+		this.m = m;
+		this.n = n;
+		initMatrix();
+	}
+
+	public Matrix(double[][] values) {
+		this.values = values;
+
+		m = values.length;
+
+		if (0 == m) {
+			n = 0;
+		} else
+			n = values[0].length;
+	}
+
+	protected void initMatrix() {
+		values = new double[m][n];
+
+		clear();
+	}
+
+	public double at(int x, int y) {
+		if (x < 0 || x >= m || y < 0 || y >= n) {
+			throw new IllegalArgumentException();
+		}
+
+		return values[x][y];
+	}
+
+	public void set(int x, int y, double value) {
+		if (x < 0 || x >= m || y < 0 || y >= n) {
+			throw new IllegalArgumentException();
+		}
+
+		values[x][y] = value;
+	}
+
+	public void resize(int newM, int newN) {
+		double[][] newValues = new double[newM][newN];
+
+		int minM = Math.min(newM, m);
+		int minN = Math.min(newN, n);
+
+		for (int i = 0; i < minM; i++) {
+			for (int j = 0; j < minN; j++) {
+				newValues[i][j] = values[i][j];
+			}
+		}
+
+		values = newValues;
+		m = newM;
+		n = newN;
+	}
+
+	public Matrix add(Matrix operand) {
+		if (operand.m != m || operand.n != n) {
+			throw new IllegalArgumentException();
+		}
+
+		double[][] result = new double[m][n];
+
+		for (int i = 0; i < m; i++) {
+			for (int j = 0; j < n; j++) {
+				result[i][j] = values[i][j] + operand.values[i][j];
+			}
+		}
+
+		return new Matrix(result);
+	}
+
+	public Matrix mul(double scalar) {
+
+		double[][] result = new double[m][n];
+
+		for (int i = 0; i < m; i++) {
+			for (int j = 0; j < n; j++) {
+				result[i][j] = values[i][j] * scalar;
+			}
+		}
+
+		return new Matrix(result);
+	}
+
+	public Matrix sub(Matrix operand) {
+		return add(operand.mul(-1));
+	}
+
+	public Matrix mul(Matrix operand) {
+		if (n != operand.m) {
+			throw new IllegalArgumentException(
+					"n==operand.m for matrix-matrix multiplication");
+		}
+
+		double[][] result = new double[m][operand.n];
+
+		for (int i = 0; i < m; i++) {
+			for (int j = 0; j < operand.n; j++) {
+				double temp = 0;
+				for (int k = 0; k < n; k++) {
+					temp += values[i][k] * operand.values[k][j];
+				}
+				result[i][j] = temp;
+			}
+		}
+
+		return new Matrix(result);
+	}
+
+	public void clear() {
+		for (int i = 0; i < m; i++) {
+			for (int j = 0; j < n; j++) {
+				values[i][j] = 0;
+			}
+		}
+	}
+
+	public Matrix invert() {
+		assert (m == n);
+
+		Matrix tempMatrix = identity(m);
+		double[][] temp = tempMatrix.values;
+		double[][] workingValues = Helper.clone(values);
+		int[] index = new int[m];
+
+		for (int i = 0; i < m; i++) {
+			index[i] = i;
+		}
+
+		// establish upper triangular matrix
+		for (int i = 0; i < m; i++) {
+			int maxIndex = -1;
+			double maxValue = 0;
+
+			// find max value in column i
+			for (int j = i; j < m; j++) {
+				if (Math.abs(workingValues[index[j]][i]) > maxValue) {
+					maxIndex = j;
+					maxValue = Math.abs(workingValues[index[j]][i]);
+				}
+			}
+
+			if (maxIndex == -1) {
+				printMappedArray(workingValues, index);
+				throw new IllegalArgumentException("Matrix is singular");
+			}
+
+			int swap = index[i];
+			index[i] = index[maxIndex];
+			index[maxIndex] = swap;
+
+			maxValue = workingValues[index[i]][i];
+
+			// eliminate entries in column j below row i
+			for (int j = i + 1; j < m; j++) {
+				double value = workingValues[index[j]][i] / maxValue;
+				workingValues[index[j]][i] = 0;
+
+				for (int k = i + 1; k < m; k++) {
+					workingValues[index[j]][k] = workingValues[index[j]][k]
+							- value * workingValues[index[i]][k];
+				}
+
+				for (int k = 0; k < m; k++) {
+					temp[index[j]][k] = temp[index[j]][k] - value
+							* temp[index[i]][k];
+				}
+			}
+		}
+
+		// establish identity matrix
+		for (int i = m - 1; i >= 0; i--) {
+			for (int j = i - 1; j >= 0; j--) {
+				double value = workingValues[index[j]][i]
+						/ workingValues[index[i]][i];
+				workingValues[index[j]][i] = 0;
+
+				for (int k = 0; k < m; k++) {
+					temp[index[j]][k] -= value * temp[index[i]][k];
+				}
+			}
+
+			double value = workingValues[index[i]][i];
+			workingValues[index[i]][i] = 1;
+
+			for (int k = 0; k < m; k++) {
+				temp[index[i]][k] /= value;
+			}
+		}
+
+		double[][] result = new double[m][m];
+
+		for (int i = 0; i < m; i++) {
+			for (int j = 0; j < m; j++) {
+				result[i][j] = temp[index[i]][j];
+			}
+		}
+
+		return new Matrix(result);
+	}
+
+	/**
+	 * This function is only used for debugging purposes. It prints the array array so that the ordering
+	 * of the rows conforms with the row ordering specified by mapping. The entry mapping[i] is the row index
+	 * which is supposed to be the i-th row.
+	 * @param array
+	 * @param mapping
+	 */
+	private void printMappedArray(double[][] array, int[] mapping) {
+		for (int i = 0; i < array.length; i++) {
+			for (int j = 0; j < array[0].length; j++) {
+				System.out.print(array[mapping[i]][j]);
+
+				if (j < array[0].length - 1) {
+					System.out.print(";");
+				}
+			}
+			System.out.println();
+		}
+	}
+
+	public void printMatrix() {
+		for (int i = 0; i < m; i++) {
+			for (int j = 0; j < n; j++) {
+				System.out.print(values[i][j]);
+				if (j < n - 1) {
+					System.out.print(";");
+				}
+			}
+			System.out.println();
+		}
+	}
+
+	public Matrix transpose() {
+		double[][] result = new double[n][m];
+
+		for (int i = 0; i < m; i++) {
+			for (int j = 0; j < n; j++) {
+				result[j][i] = values[i][j];
+			}
+		}
+
+		return new Matrix(result);
+	}
+
+	public double dot(Matrix operand) {
+		assert (m == operand.m && n == 1 && operand.n == 1);
+
+		double result = 0;
+
+		for (int i = 0; i < m; i++) {
+			result += values[i][0] * operand.values[i][0];
+		}
+
+		return result;
+	}
+
+	public static Matrix identity(int n) {
+		double[][] values = new double[n][n];
+
+		for (int i = 0; i < n; i++) {
+			for (int j = 0; j < n; j++) {
+				values[i][j] = i == j ? 1 : 0;
+			}
+		}
+
+		return new Matrix(values);
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (obj == null || !(obj instanceof Matrix)) {
+			return false;
+		}
+
+		Matrix matrix = (Matrix) obj;
+
+		if (matrix.m != m || matrix.n != n)
+			return false;
+
+		for (int i = 0; i < m; i++) {
+			for (int j = 0; j < n; j++) {
+				if (Math.abs(matrix.values[i][j] - values[i][j]) > Helper.eps) {
+					return false;
+				}
+			}
+		}
+
+		return true;
+	}
+
+	@Override
+	public Matrix clone() {
+		double[][] result = Helper.clone(values);
+		return new Matrix(result);
+	}
+
+	public static void main(String[] args) {
+		double[][] values = { { 4, 3 }, { 2, 1 } };
+
+		Matrix matrix = new Matrix(values);
+
+		Matrix inverse = matrix.invert();
+
+		inverse.printMatrix();
+
+		Matrix mul = matrix.mul(inverse);
+
+		mul.printMatrix();
+	}
+
+	@Override
+	public int hashCode() {
+		int result = 0;
+
+		for (int i = 0; i < m; i++) {
+			for (int j = 0; j < n; j++) {
+				long v = Double.doubleToLongBits(values[i][j]);
+				result ^= (int) ((v >> 32) ^ v);
+			}
+		}
+
+		return result;
+	}
+}
+
+/**
+ * Convenience class. If you want to give 2 values back from a method then you don't have to
+ * write an own class, just use the Pair<S,T> class.
+ * @author rohrmann
+ *
+ * @param <S>
+ * @param <T>
+ */
+class Pair<S, T> {
+	private S aValue;
+	private T bValue;
+
+	public Pair(S aValue, T bValue) {
+		this.aValue = aValue;
+		this.bValue = bValue;
+	}
+
+	public S a() {
+		return aValue;
+	}
+
+	public T b() {
+		return bValue;
+	}
+
+}
+
+/**
+ * This class encapsulates the necessary information for one sample.
+ * @author rohrmann
+ *
+ */
+class Sample {
+	public StateEx oldState;
+	public StateEx newState;
+	public double reward;
+
+	public Sample(StateEx oldState, StateEx newState, double reward) {
+		this.oldState = oldState;
+		this.newState = newState;
+		this.reward = reward;
+	}
+	
+	@Override
+	public int hashCode(){
+		Double re = reward;
+		return oldState.hashCode()^newState.hashCode()^re.hashCode();
+	}
+
+}
+
+
+
+/**
  * This class implements our Tetris AI
  * @author rohrmann
  *
@@ -20,15 +1347,13 @@ public class PlayerSkeleton {
 	private final double discountFactor = 0.99999;
 	private final int iterations = 10;
 	private final double delta = 0.000001;
-	private final int gamesPerIteration = 10;
+	private final int gamesPerIteration = 1;
 	private final int intialSamples = 1000;
 	private final int maxSamples = 5000;
 
 	public PlayerSkeleton() {
 		baseFunctions = new BaseFunctions();
-		//initDellacherie();
-		initThiery();
-		learnWeights();
+		initDellacherie();
 	}
 	
 
@@ -248,7 +1573,7 @@ public class PlayerSkeleton {
 			}
 
 			newWeights = LSPI(samples, weights, baseFunctions);
-			
+						
 			//If the samples are not well distributed, then the LSPI algorithm doesn't converge but instead
 			//moves in a space around the optimal solution. If the LSPI algorithm notes that, it will return
 			//null.
