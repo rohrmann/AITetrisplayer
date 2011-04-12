@@ -373,4 +373,30 @@ public class StateEx {
 	public int getErodedCells() {
 		return erodedPieces;
 	}
+	
+	@Override
+	public int hashCode(){
+		int result = 0;
+		int temp = 0;
+		int counter = 0;
+		
+		for(int r = 0; r < State.ROWS-1;r++){
+			for(int c =0; c < State.COLS;c++){
+				if(field[r][c] != 0){
+					temp |= 1 << counter;
+				}
+				
+				counter++;
+				
+				if(counter >= 32){
+					result ^= temp;
+					counter =0;
+				}
+			}
+		}
+		
+		result ^= temp;
+		
+		return result;
+	}
 }

@@ -13,5 +13,11 @@ public class Sample {
 		this.newState = newState;
 		this.reward = reward;
 	}
+	
+	@Override
+	public int hashCode(){
+		Double re = reward;
+		return oldState.hashCode()^newState.hashCode()^re.hashCode();
+	}
 
 }

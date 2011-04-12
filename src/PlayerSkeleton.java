@@ -1,4 +1,5 @@
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -17,22 +18,27 @@ public class PlayerSkeleton {
 	
 //	used for the LSPI algorithm
 	private final double discountFactor = 0.99999;
-	private final int iterations = 20;
+	private final int iterations = 10;
 	private final double delta = 0.000001;
-	private final int gamesPerIteration = 5;
+	private final int gamesPerIteration = 10;
+	private final int intialSamples = 1000;
+	private final int maxSamples = 5000;
 
 	public PlayerSkeleton() {
 		baseFunctions = new BaseFunctions();
-		initDellacherie();
+		//initDellacherie();
+		initThiery();
+		learnWeights();
 	}
+	
 
 	/**
 	 * Generation of random samples by creating a random state and playing randomly
 	 * @param numberSamples
 	 * @return
 	 */
-	protected List<Sample> getRandomSamples(int numberSamples) {
-		List<Sample> result = new ArrayList<Sample>();
+	protected Set<Sample> getRandomSamples(int numberSamples) {
+		Set<Sample> result = new HashSet<Sample>();
 		int n = 0;
 
 		while (n < numberSamples) {
@@ -59,9 +65,9 @@ public class PlayerSkeleton {
 	 * @param baseFunctions
 	 * @return
 	 */
-	protected List<Sample> getRandomSamplesByPlayingPolicy(int numSamples,
+	protected Set<Sample> getRandomSamplesByPlayingPolicy(int numSamples,
 			Matrix weights, BaseFunctions baseFunctions) {
-		List<Sample> result = new ArrayList<Sample>();
+		Set<Sample> result = new HashSet<Sample>();
 		int n = 0;
 
 		while (n < numSamples) {
@@ -71,10 +77,9 @@ public class PlayerSkeleton {
 			int choice = applyPolicy(state, moves, weights, baseFunctions);
 
 			StateEx newState = state.clone();
-			if (newState.makeMove(moves[choice][0], moves[choice][1])) {
-				result.add(new Sample(state, newState, newState
-						.getRowsCleared()
-						- state.getRowsCleared()));
+			if (newState.makeMove(moves[choice][0], moves[choice][1]) && result.add(new Sample(state, newState, newState
+					.getRowsCleared()
+					- state.getRowsCleared()))) {
 				n++;
 			}
 		}
@@ -88,9 +93,9 @@ public class PlayerSkeleton {
 	 * @param baseFunctions
 	 * @return
 	 */
-	protected List<Sample> getSamplesByPlayingRandomly(int numSamples,
+	protected Set<Sample> getSamplesByPlayingRandomly(int numSamples,
 			Matrix weights, BaseFunctions baseFunctions) {
-		List<Sample> result = new ArrayList<Sample>();
+		Set<Sample> result = new HashSet<Sample>();
 
 		StateEx state = new StateEx();
 		int samples = 0;
@@ -119,9 +124,9 @@ public class PlayerSkeleton {
 	 * @param baseFunctions
 	 * @return
 	 */
-	protected List<Sample> getSamplesByPlayingPolicy(int numSamples,
+	protected Set<Sample> getSamplesByPlayingPolicy(int numSamples,
 			Matrix weights, BaseFunctions baseFunctions) {
-		List<Sample> result = new ArrayList<Sample>();
+		Set<Sample> result = new HashSet<Sample>();
 
 		StateEx state = new StateEx();
 		int samples = 0;
@@ -151,9 +156,9 @@ public class PlayerSkeleton {
 	 * @param baseFunctions
 	 * @return
 	 */
-	protected Pair<List<Sample>, Double> getSamplesByPlayingGame(int games,
+	protected Pair<Set<Sample>, Double> getSamplesByPlayingGame(int games,
 			Matrix weights, BaseFunctions baseFunctions) {
-		List<Sample> result = new ArrayList<Sample>();
+		Set<Sample> result = new HashSet<Sample>();
 		int rowsCleared = 0;
 
 		for (int i = 0; i < games; i++) {
@@ -179,8 +184,23 @@ public class PlayerSkeleton {
 
 		System.out.println("Average rows cleared:" + (double) rowsCleared
 				/ games);
-		return new Pair<List<Sample>, Double>(result, (double) rowsCleared
+		return new Pair<Set<Sample>, Double>(result, (double) rowsCleared
 				/ games);
+	}
+	
+	protected List<Integer> getRandomNumbers(int start, int end,int numbers){
+		Set<Integer> set = new HashSet<Integer>();
+		int number = 0;
+		while(number < numbers){
+			if(set.add((int)(Math.random()*(end-start)+start))){
+				number++;
+			}
+		}
+		
+		List<Integer> result = new ArrayList<Integer>(set);
+		Collections.sort(result);
+		
+		return result;
 	}
 
 	/**
@@ -190,14 +210,37 @@ public class PlayerSkeleton {
 	 * which is set as the final weight vector at the end.
 	 */
 	protected void learnWeights() {
-		List<Sample> samples = new ArrayList<Sample>();
+		Set<Sample> samples = new HashSet<Sample>();
 		Matrix newWeights = null;
 		Matrix maxWeights = null;
 		double max = 0;
+		
+		samples.addAll(getSamplesByPlayingPolicy(intialSamples, weights, baseFunctions));
 		for (int i = 0; i < iterations; i++) {
-			Pair<List<Sample>, Double> pair = getSamplesByPlayingGame(gamesPerIteration,
+			Pair<Set<Sample>, Double> pair = getSamplesByPlayingGame(gamesPerIteration,
 					weights, baseFunctions);
-			samples = pair.a();
+			samples.addAll(pair.a());
+			
+			if(samples.size() > maxSamples){
+				List<Integer> randomNumbers = getRandomNumbers(0, samples.size(), maxSamples);
+				Set<Sample> newSamples = new HashSet<Sample>();
+				int index = 0;
+				int indexToPick = randomNumbers.get(0);
+				int indexRandomNumbers = 0;
+				for(Sample sample: samples){
+					if(index == indexToPick){
+						newSamples.add(sample);
+						indexRandomNumbers++;
+						if(indexRandomNumbers >= randomNumbers.size())
+							break;
+						else
+							indexToPick = randomNumbers.get(indexRandomNumbers);
+					}
+					index++;
+				}
+				
+				samples = newSamples;
+			}
 
 			if (max < pair.b()) {
 				max = pair.b();
@@ -213,6 +256,8 @@ public class PlayerSkeleton {
 				weights = newWeights;
 			} else {
 				System.out.println("LSPI didn't converge");
+				weights = maxWeights;
+				samples.clear();
 			}
 		}
 
@@ -231,7 +276,7 @@ public class PlayerSkeleton {
 	 * @param baseFunctions
 	 * @return
 	 */
-	protected Matrix LSPI(List<Sample> samples, Matrix weights,
+	protected Matrix LSPI(Set<Sample> samples, Matrix weights,
 			BaseFunctions baseFunctions) {
 		Matrix newWeights = weights.clone();
 		Matrix oldWeights;
@@ -258,7 +303,7 @@ public class PlayerSkeleton {
 	 * @param baseFunctions
 	 * @return
 	 */
-	protected Matrix LSTDQ(List<Sample> samples, Matrix weights,
+	protected Matrix LSTDQ(Set<Sample> samples, Matrix weights,
 			BaseFunctions baseFunctions) {
 		Matrix A = Matrix.identity(baseFunctions.size()).mul(delta);
 		Matrix b = new Matrix(baseFunctions.size(), 1);
@@ -299,7 +344,7 @@ public class PlayerSkeleton {
 	 * @param baseFunctions
 	 * @return
 	 */
-	protected Matrix LSTDQOPT(List<Sample> samples, Matrix weights,
+	protected Matrix LSTDQOPT(Set<Sample> samples, Matrix weights,
 			BaseFunctions baseFunctions) {
 		Matrix B = Matrix.identity(baseFunctions.size()).mul(1 / delta);
 		Matrix b = new Matrix(baseFunctions.size(), 1);
@@ -418,8 +463,8 @@ public class PlayerSkeleton {
 	 */
 	void initLagoudakis(){
 		List<Double> weights = new ArrayList<Double>();
-		 //2700 rows cleared: -8.78951411243151;0.08151298534273177;431.6138387336361;1097.2245005375664;4.564176063822103;-0.9564016301739926;-9.207422350726727;432.3913694007997;-42.26627603559048;-46.52407063944807
-				
+		 //2700 rows cleared: 	-8.78951411243151;0.08151298534273177;431.6138387336361;1097.2245005375664;4.564176063822103;-0.9564016301739926;-9.207422350726727;432.3913694007997;-42.26627603559048;-46.52407063944807
+		//						-6.56954858742778;0.08181327300598731;370.2593875121343;722.7739339087932;1.7262246126294072;-0.7238505736718397;-6.311884882167713;370.4098800647336;-27.542721346049227;-39.82952820318409
 		 //sum of absolute adjacent column height diffs
 		 baseFunctions.add(new BFAHD());
 		 weights.add(-8.78951411243151);
@@ -510,31 +555,13 @@ public class PlayerSkeleton {
 	}
 
 	public static void main(String[] args) {
-		int n = 10;
-		int rows = 0;
-		int moves = 0;
-		// State state = new State();
-		// TFrame frame = new TFrame(state);
 		PlayerSkeleton p = new PlayerSkeleton();
-		for (int i = 0; i < n; i++) {
-			moves = 0;
-			State s = new State();
-			// s.label = frame.label;
-			while (!s.hasLost()) {
-				if (moves % 10000 == 10000-1) {
-					System.out.println("Rows cleared so far:"
-							+ s.getRowsCleared());
-				}
-				s.makeMove(p.pickMove(s, s.legalMoves()));
-				moves++;
-				// s.draw();
-				// s.drawNext(0, 0);
-			}
-
-			rows += s.getRowsCleared();
+		State s = new State();
+		while (!s.hasLost()) {
+			s.makeMove(p.pickMove(s, s.legalMoves()));
 		}
 
-		System.out.println("Average rows:" + (double) rows / n);
+		System.out.println(s.getRowsCleared());
 
 	}
 
